@@ -3,6 +3,6 @@ __pycache__/
 *.pyc
 .env
 
-# WhatsApp raw data — never commit chat exports
+# WhatsApp raw chat data
 data/
 *.txt
