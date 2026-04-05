@@ -6,3 +6,6 @@ __pycache__/
 # WhatsApp raw chat data
 data/
 *.txt
+
+# Local config with personal URL mappings
+config.py

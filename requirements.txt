@@ -2,3 +2,4 @@ pandas
 sentence-transformers
 chromadb
 python-dotenv
+emoji
