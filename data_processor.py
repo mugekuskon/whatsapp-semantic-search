@@ -12,13 +12,21 @@ _DOC_ATTACHMENT_RE = re.compile(r"(.+?)\s*•\s*\d+\s*(?:sayfa|page)\s*belge dah
 _HTTP_URL_RE = re.compile(r"https?://\S+")
 
 
+_MAX_URL_LEN = 80  # URLs longer than this are shortened to domain only
+
 def _label_for_url(url: str) -> str:
-    """Return a Turkish semantic label for a URL, keeping the URL itself."""
-    domain = urlparse(url).netloc
+    """Return a Turkish semantic label + URL.
+
+    Short URLs (<=80 chars) are kept in full.
+    Long URLs are shortened to scheme://domain to save token budget.
+    """
+    parsed = urlparse(url)
+    domain = parsed.netloc
+    display_url = url if len(url) <= _MAX_URL_LEN else f"{parsed.scheme}://{domain}"
     for domains, label in URL_DOMAIN_LABELS:
         if domain in domains:
-            return f"{label} {url}"
-    return f"[link paylaşıldı] {url}"
+            return f"{label} {display_url}"
+    return f"[link paylaşıldı] {display_url}"
 
 
 def _replace_urls(text: str) -> str:
@@ -97,15 +105,41 @@ def chunk_messages(
 
         participants = list(dict.fromkeys(r["Sender"] for r in window))
 
-        chunks.append(
-            {
-                "chunk_text": chunk_text,
-                "start_datetime": start_dt,
-                "end_datetime": end_dt,
-                "participants": participants,
-                "source": source,
-            }
-        )
+        # If chunk exceeds 1200 chars, split into sub-chunks of 1200 chars each
+        # by line boundaries so we never cut mid-message.
+        if len(chunk_text) > 1200:
+            sub_lines = chunk_text.split("\n")
+            current_sub, current_len = [], 0
+            for line in sub_lines:
+                if current_len + len(line) > 1200 and current_sub:
+                    chunks.append({
+                        "chunk_text": "\n".join(current_sub),
+                        "start_datetime": start_dt,
+                        "end_datetime": end_dt,
+                        "participants": participants,
+                        "source": source,
+                    })
+                    current_sub, current_len = [], 0
+                current_sub.append(line)
+                current_len += len(line) + 1
+            if current_sub:
+                chunks.append({
+                    "chunk_text": "\n".join(current_sub),
+                    "start_datetime": start_dt,
+                    "end_datetime": end_dt,
+                    "participants": participants,
+                    "source": source,
+                })
+        else:
+            chunks.append(
+                {
+                    "chunk_text": chunk_text,
+                    "start_datetime": start_dt,
+                    "end_datetime": end_dt,
+                    "participants": participants,
+                    "source": source,
+                }
+            )
 
     print(f"[chunk] {source}: {len(chunks)} chunks (window={window_size}, overlap={overlap}).")
     return chunks
