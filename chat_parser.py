@@ -1,5 +1,6 @@
 import re
 import pandas as pd
+import sys
 
 _STRIP = re.compile(r"[\u200e\u200f\ufeff]")
 
@@ -68,5 +69,6 @@ def parse_whatsapp_chat(file_path: str) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    df = parse_whatsapp_chat("data/_chat_2.txt")
+    path = sys.argv[1] if len(sys.argv) > 1 else "data/sample.txt"
+    df = parse_whatsapp_chat(path)
     print(df.head())
