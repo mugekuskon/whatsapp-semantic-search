@@ -8,15 +8,48 @@ Chunk dicts produced by data_processor.py are accepted directly via
 """
 
 import logging
+import re
+import unicodedata
 from typing import Any
-
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
-MODEL_NAME = "all-MiniLM-L6-v2"
+_WHITESPACE_RE = re.compile(r"[\s\u00a0]+")
+
+# Matches C0/C1 control characters except newline (kept for multi-line messages)
+_CONTROL_RE = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
+
+_PUNCT_MAP = str.maketrans({
+    "\u2018": "'", "\u2019": "'",   # left/right single quotation marks
+    "\u201c": '"', "\u201d": '"',   # left/right double quotation marks
+    "\u2013": "-", "\u2014": "-",   # en-dash, em-dash
+    "\u2026": "...",                # ellipsis
+})
+
+
+def _normalize(text: str) -> str:
+    """
+    Lightly normalize text before embedding.
+
+    Steps applied in order:
+    1. NFC unicode normalization — canonical composition, preserves diacritics
+       (Turkish ş, ğ, ı, ö, ü are kept intact).
+    2. Standardize punctuation variants (fancy quotes, dashes, ellipsis).
+    3. Strip C0/C1 control characters (leaves newlines for multi-line messages).
+    4. Lowercase.
+    5. Collapse repeated whitespace and trim edges.
+    """
+    text = unicodedata.normalize("NFC", text)
+    text = text.translate(_PUNCT_MAP)
+    text = _CONTROL_RE.sub("", text)
+    text = text.lower()
+    text = _WHITESPACE_RE.sub(" ", text).strip()
+    return text
+
+MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
 EXPECTED_DIM = 384
 
 
@@ -28,17 +61,18 @@ class EmbeddingManager:
         log.info("Loaded model '%s' (dim=%d)", self.model_name, self.dim)
 
     def embed_single(self, text: str) -> list[float]:
-        """Embed one string and return a flat list of floats. Returns [] for empty input."""
+        """Normalize then embed one string; return a flat list of floats. Returns [] for empty input."""
         if not text:
             return []
-        vector = self.model.encode(text)
+        vector = self.model.encode(_normalize(text))
         return vector.tolist()
 
     def embed_batch(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
-        """Embed a list of strings in batches; returns a list of embedding vectors. Returns [] for empty input."""
+        """Normalize then embed a list of strings in batches; returns a list of embedding vectors. Returns [] for empty input."""
         if not texts:
             return []
-        vectors = self.model.encode(texts, batch_size=batch_size, show_progress_bar=True)
+        normalized = [_normalize(t) for t in texts]
+        vectors = self.model.encode(normalized, batch_size=batch_size, show_progress_bar=True)
         return [v.tolist() for v in vectors]
 
     def embed_chunks(self, chunks: list[dict]) -> list[dict]:
@@ -64,21 +98,21 @@ if __name__ == "__main__":
 
     test_chunks = [
         {
-            "chunk_text": "Alice: Hey, are we still meeting for coffee tomorrow?",
+            "chunk_text": "Alice: Selam, yarın kafede buluşacak mıyız?",
             "source": "test",
             "participants": ["Alice"],
             "start_datetime": None,
             "end_datetime": None,
         },
         {
-            "chunk_text": "Bob: Yes! Let's meet at the usual café at 10am.",
+            "chunk_text": "Bob: Evet, saat 3 iyi olur. Her zamanki kafe?",
             "source": "test",
             "participants": ["Bob"],
             "start_datetime": None,
             "end_datetime": None,
         },
         {
-            "chunk_text": "Charlie: The quarterly financial report shows a 12% revenue increase.",
+            "chunk_text": "Charlie: Okçuluk dersine başlamak istiyorum.",
             "source": "test",
             "participants": ["Charlie"],
             "start_datetime": None,
