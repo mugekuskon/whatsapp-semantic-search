@@ -1,18 +1,10 @@
-"""
-Embedding logic for the WhatsApp semantic search RAG pipeline.
-
-Wraps the sentence-transformers `all-MiniLM-L6-v2` model in an
-`EmbeddingManager` class that is loaded once and reused across calls.
-Chunk dicts produced by data_processor.py are accepted directly via
-`embed_chunks()`.
-"""
-
 import logging
 import re
 import unicodedata
 from typing import Any
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from config import EMBEDDING_MODEL
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -49,7 +41,7 @@ def _normalize(text: str) -> str:
     text = _WHITESPACE_RE.sub(" ", text).strip()
     return text
 
-MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
+MODEL_NAME = EMBEDDING_MODEL
 EXPECTED_DIM = 384
 
 

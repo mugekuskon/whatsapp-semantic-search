@@ -9,3 +9,6 @@ data/
 
 # Local config with personal URL mappings
 config.py
+
+# ChromaDB vector database
+chroma_db/
