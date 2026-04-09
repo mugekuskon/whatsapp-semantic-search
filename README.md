@@ -20,5 +20,5 @@ Place your exported WhatsApp `.txt` files in a `data/` directory.
 - [x] Chat parsing (multi-format)
 - [x] Data cleaning and chunking
 - [x] Text normalization and embedding
-- [ ] Vector storage (ChromaDB)
+- [x] Vector storage (ChromaDB)
 - [ ] Semantic search interface
