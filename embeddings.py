@@ -2,6 +2,8 @@ import logging
 import re
 import unicodedata
 from typing import Any
+import json
+from pathlib import Path
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from config import EMBEDDING_MODEL
@@ -23,17 +25,6 @@ _PUNCT_MAP = str.maketrans({
 
 
 def _normalize(text: str) -> str:
-    """
-    Lightly normalize text before embedding.
-
-    Steps applied in order:
-    1. NFC unicode normalization — canonical composition, preserves diacritics
-       (Turkish ş, ğ, ı, ö, ü are kept intact).
-    2. Standardize punctuation variants (fancy quotes, dashes, ellipsis).
-    3. Strip C0/C1 control characters (leaves newlines for multi-line messages).
-    4. Lowercase.
-    5. Collapse repeated whitespace and trim edges.
-    """
     text = unicodedata.normalize("NFC", text)
     text = text.translate(_PUNCT_MAP)
     text = _CONTROL_RE.sub("", text)
@@ -88,29 +79,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 if __name__ == "__main__":
     manager = EmbeddingManager()
 
-    test_chunks = [
-        {
-            "chunk_text": "Alice: Selam, yarın kafede buluşacak mıyız?",
-            "source": "test",
-            "participants": ["Alice"],
-            "start_datetime": None,
-            "end_datetime": None,
-        },
-        {
-            "chunk_text": "Bob: Evet, saat 3 iyi olur. Her zamanki kafe?",
-            "source": "test",
-            "participants": ["Bob"],
-            "start_datetime": None,
-            "end_datetime": None,
-        },
-        {
-            "chunk_text": "Charlie: Okçuluk dersine başlamak istiyorum.",
-            "source": "test",
-            "participants": ["Charlie"],
-            "start_datetime": None,
-            "end_datetime": None,
-        },
-    ]
+    test_chunks = json.loads((Path(__file__).parent / "test_chunks.json").read_text(encoding="utf-8"))
 
     result = manager.embed_chunks(test_chunks)
 

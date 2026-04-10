@@ -1,6 +1,5 @@
 """
 Hybrid semantic + keyword search over the WhatsApp ChromaDB collection.
-
 Combines ChromaDB vector search with BM25 keyword search, merged via
 Reciprocal Rank Fusion (RRF) for best results.
 """
@@ -10,6 +9,7 @@ import re
 from datetime import datetime, timezone, timedelta
 import chromadb
 from rank_bm25 import BM25Okapi
+from sentence_transformers import CrossEncoder
 from database_manager import MODEL_NAME, COLLECTION_NAME, NormalizedEmbeddingFunction
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -19,6 +19,36 @@ DB_PATH = "./chroma_db"
 
 # RRF constant — higher = smaller penalty for lower-ranked results (60 is standard)
 RRF_K = 60
+
+# Multilingual cross-encoder re-ranker — scores query-document relevance directly.
+# Much more accurate than cosine similarity or BM25 alone.
+RERANKER_MODEL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+_reranker: CrossEncoder | None = None
+
+def _get_reranker() -> CrossEncoder:
+    global _reranker
+    if _reranker is None:
+        log.info("Loading re-ranker model '%s'...", RERANKER_MODEL)
+        _reranker = CrossEncoder(RERANKER_MODEL)
+    return _reranker
+
+
+def rerank(query: str, candidates: list[tuple[str, str, dict, float]], top_n: int) -> list[tuple[str, str, dict, float, float]]:
+    """
+    Re-rank candidates using a cross-encoder.
+
+    Args:
+        candidates: list of (id, doc, meta, dist) from hybrid search
+        top_n:      how many to return after re-ranking
+
+    Returns:
+        list of (id, doc, meta, dist, rerank_score) sorted by rerank_score desc
+    """
+    reranker = _get_reranker()
+    pairs = [(query, doc) for _, doc, _, _ in candidates]
+    scores = reranker.predict(pairs)
+    ranked = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
+    return [(cid, doc, meta, dist, float(score)) for (cid, doc, meta, dist), score in ranked[:top_n]]
 
 
 def get_db_collection() -> chromadb.Collection:
@@ -86,7 +116,7 @@ def _months_ago_filter(months: int) -> dict:
     return {"start_timestamp": {"$gte": int(cutoff.timestamp())}}
 
 
-def hybrid_search(query_text: str, n_results: int = 5, months_ago: int | None = None) -> dict:
+def hybrid_search(query_text: str, n_results: int = 5, months_ago: int | None = None, use_reranker: bool = True) -> dict:
     """
     Run hybrid search: semantic (ChromaDB) + keyword (BM25 over ALL docs), merged with RRF.
 
@@ -143,35 +173,60 @@ def hybrid_search(query_text: str, n_results: int = 5, months_ago: int | None = 
     exact_set = set(exact_ids)
     pinned   = [(doc_id, score) for doc_id, score in rrf_ranked if doc_id in exact_set]
     the_rest = [(doc_id, score) for doc_id, score in rrf_ranked if doc_id not in exact_set]
-    merged = (pinned + the_rest)[:n_results]
 
-    final_ids, final_docs, final_metas, final_dists = [], [], [], []
+    # Fetch a larger candidate pool for re-ranker to work with
+    rerank_pool_size = max(n_results * 3, 12)
+    merged = (pinned + the_rest)[:rerank_pool_size]
+
+    # Deduplicate by text — overlapping windows can produce near-identical chunks
+    seen_texts: set[str] = set()
+    candidates = []
     for doc_id, _ in merged:
-        final_ids.append(doc_id)
-        final_docs.append(id_to_doc[doc_id])
-        final_metas.append(id_to_meta[doc_id])
-        final_dists.append(id_to_dist.get(doc_id, 1.0))  # 1.0 = max distance if not in semantic pool
+        text = id_to_doc[doc_id]
+        if text not in seen_texts:
+            seen_texts.add(text)
+            candidates.append((doc_id, text, id_to_meta[doc_id], id_to_dist.get(doc_id, 1.0)))
+
+    # 6. Re-rank with cross-encoder for precise relevance scoring
+    if use_reranker and candidates:
+        reranked = rerank(query_text, candidates, top_n=n_results)
+        final_ids    = [r[0] for r in reranked]
+        final_docs   = [r[1] for r in reranked]
+        final_metas  = [r[2] for r in reranked]
+        final_dists  = [r[3] for r in reranked]
+        final_scores = [r[4] for r in reranked]
+    else:
+        top = candidates[:n_results]
+        final_ids    = [r[0] for r in top]
+        final_docs   = [r[1] for r in top]
+        final_metas  = [r[2] for r in top]
+        final_dists  = [r[3] for r in top]
+        final_scores = [None] * len(top)
 
     return {
-        "ids":       [final_ids],
-        "documents": [final_docs],
-        "metadatas": [final_metas],
-        "distances": [final_dists],
+        "ids":           [final_ids],
+        "documents":     [final_docs],
+        "metadatas":     [final_metas],
+        "distances":     [final_dists],
+        "rerank_scores": [final_scores],
     }
 
 
 def print_search_results(results: dict) -> None:
     """Pretty-print search results to the terminal."""
-    documents = results.get("documents", [[]])[0]
-    metadatas = results.get("metadatas", [[]])[0]
-    distances = results.get("distances", [[]])[0]
+    documents     = results.get("documents", [[]])[0]
+    metadatas     = results.get("metadatas", [[]])[0]
+    distances     = results.get("distances", [[]])[0]
+    rerank_scores = results.get("rerank_scores", [[]])[0] or [None] * len(documents)
 
     if not documents:
         print("No results found.")
         return
 
-    for i, (doc, meta, dist) in enumerate(zip(documents, metadatas, distances), start=1):
-        if dist >= 1.0:
+    for i, (doc, meta, dist, rscore) in enumerate(zip(documents, metadatas, distances, rerank_scores), start=1):
+        if rscore is not None:
+            match_label = f"rerank score: {rscore:.3f}"
+        elif dist >= 1.0:
             match_label = "keyword match"
         else:
             match_label = f"similarity: {(1 - dist) * 100:.1f}%"

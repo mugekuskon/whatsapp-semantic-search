@@ -8,14 +8,15 @@ Flow:
 """
 
 import logging
+import time
 import ollama
 from search_engine import hybrid_search
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
-OLLAMA_MODEL = "qwen2.5:7b-instruct-q4_k_m"  # Ollama model name to use for generation
-N_RESULTS = 5
+OLLAMA_MODEL = "aya-expanse:8b"
+N_RESULTS = 3
 
 
 def build_prompt(question: str, chunks: list[dict]) -> str:
@@ -28,36 +29,39 @@ def build_prompt(question: str, chunks: list[dict]) -> str:
     - Keep the answer concise and grounded in the chat history
     """
     context_blocks = []
-    for i, chunk in enumerate(chunks, start=1):
-        meta = chunk["meta"]
-        time_range = f"{meta.get('start_datetime') or 'unknown'} → {meta.get('end_datetime') or 'unknown'}"
+    for chunk in chunks:
+        meta         = chunk["meta"]
+        source       = meta.get("source") or "unknown"
+        start        = meta.get("start_datetime") or "unknown"
+        end          = meta.get("end_datetime") or "unknown"
         participants = meta.get("participants") or "unknown"
-        text = chunk["text"]
+        text         = chunk["text"]
         context_blocks.append(
-            f"[Conversation {i}]\n"
-            f"Time     : {time_range}\n"
-            f"People   : {participants}\n"
-            f"Messages :\n{text}"
+            f"[Kaynak: {source} | {start} — {end}]\n"
+            f"[Kişiler: {participants}]\n"
+            f"{text}"
         )
 
-    context = "\n\n".join(context_blocks)
+    context = "\n\n---\n\n".join(context_blocks)
 
-    return f"""You are a helpful assistant that answers questions about WhatsApp chat history.
-You are given several conversation snippets retrieved from the chat logs.
-Answer the user's question using ONLY the information found in these conversations.
-If the answer cannot be found in the provided conversations, say so clearly.
-Keep your answer concise and directly grounded in the chat messages.
-The conversations may be in Turkish — understand them but answer in the same language as the question.
+    return f"""You are a helpful assistant answering questions about a person's WhatsApp chat history.
 
----
-RETRIEVED CONVERSATIONS:
+STRICT RULES:
+1. Answer ONLY using information explicitly stated in the chat snippets below.
+2. Do NOT infer, guess, or add any information not present in the messages.
+3. If the answer is not clearly in the snippets, say exactly: "Bu bilgi sohbet geçmişinde bulunamadı."
+4. When referencing a message, cite it using the source name and time (e.g. "friend_group sohbetinde, Aralık 2025'te...").
+5. Answer in Turkish regardless of the question language.
+6. Keep the answer short and factual.
+
+--- CHAT SNIPPETS ---
 
 {context}
 
----
-QUESTION: {question}
+--- QUESTION ---
+{question}
 
-ANSWER:"""
+--- ANSWER ---"""
 
 
 def _parse_results(raw_results: dict) -> list[dict]:
@@ -79,24 +83,35 @@ def ask(question: str, n_results: int = N_RESULTS, months_ago: int | None = None
     Returns:
         The model's answer as a string.
     """
+    t0 = time.perf_counter()
+
     # 1. Retrieve
-    log.info("Retrieving top %d chunks for: %s", n_results, question)
     raw_results = hybrid_search(question, n_results=n_results, months_ago=months_ago)
     chunks = _parse_results(raw_results)
+    t_retrieve = time.perf_counter()
 
     if not chunks:
         return "No relevant conversations found in the chat history."
 
     # 2. Augment
     prompt = build_prompt(question, chunks)
-    log.info("Prompt built with %d conversation chunks.", len(chunks))
+    t_augment = time.perf_counter()
 
     # 3. Generate
-    log.info("Sending to Ollama model '%s'...", OLLAMA_MODEL)
     response = ollama.chat(
         model=OLLAMA_MODEL,
         messages=[{"role": "user", "content": prompt}],
     )
+    t_generate = time.perf_counter()
+
+    log.info(
+        "Timing — retrieve: %.2fs | augment: %.2fs | generate: %.2fs | total: %.2fs",
+        t_retrieve - t0,
+        t_augment - t_retrieve,
+        t_generate - t_augment,
+        t_generate - t0,
+    )
+
     return response["message"]["content"].strip()
 
 
@@ -104,15 +119,20 @@ def ask_stream(question: str, n_results: int = N_RESULTS, months_ago: int | None
     """
     Same as ask() but streams the response token by token.
     Yields string chunks as they arrive from the model.
+    After the stream ends, logs a timing breakdown.
     """
+    t0 = time.perf_counter()
+
     raw_results = hybrid_search(question, n_results=n_results, months_ago=months_ago)
     chunks = _parse_results(raw_results)
+    t_retrieve = time.perf_counter()
 
     if not chunks:
         yield "No relevant conversations found in the chat history."
         return
 
     prompt = build_prompt(question, chunks)
+    t_augment = time.perf_counter()
 
     stream = ollama.chat(
         model=OLLAMA_MODEL,
@@ -121,6 +141,15 @@ def ask_stream(question: str, n_results: int = N_RESULTS, months_ago: int | None
     )
     for part in stream:
         yield part["message"]["content"]
+
+    t_generate = time.perf_counter()
+    log.info(
+        "Timing — retrieve: %.2fs | augment: %.2fs | generate: %.2fs | total: %.2fs",
+        t_retrieve - t0,
+        t_augment - t_retrieve,
+        t_generate - t_augment,
+        t_generate - t0,
+    )
 
 
 if __name__ == "__main__":

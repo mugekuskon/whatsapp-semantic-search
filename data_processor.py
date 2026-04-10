@@ -6,11 +6,8 @@ from chat_parser import parse_whatsapp_chat
 from config import WHATSAPP_SYSTEM_PATTERNS, URL_DOMAIN_LABELS
 
 _SYSTEM_MSG_RE = re.compile("|".join(WHATSAPP_SYSTEM_PATTERNS), re.IGNORECASE)
-
 _DOC_ATTACHMENT_RE = re.compile(r"(.+?)\s*•\s*\d+\s*(?:sayfa|page)\s*belge dahil edilmedi", re.IGNORECASE)
-
 _HTTP_URL_RE = re.compile(r"https?://\S+")
-
 _LAUGHTER_RE = re.compile(r'\b[A-ZĞÜŞİÖÇa-zğüşıöç]{6,}\b')
 
 def _is_laughter(token: str) -> bool:
@@ -207,7 +204,7 @@ def process_all_chats(
     all_chunks = []
     for path in chat_files:
         source = path.stem
-        print(f"\n--- Processing: {source} ---")
+        print(f"\nProcessing: {source}")
         df_raw = parse_whatsapp_chat(str(path))
         print(f"  Raw rows: {len(df_raw)}")
         df_clean = clean_chat_data(df_raw)

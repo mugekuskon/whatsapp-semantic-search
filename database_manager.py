@@ -1,13 +1,13 @@
 """
 ChromaDB setup and data ingestion for the WhatsApp semantic search pipeline.
-
 Uses the same multilingual model as embeddings.py so that query vectors and
 stored vectors are always produced by the same weights.
 """
-
 import uuid
 import logging
 import re
+import json
+from pathlib import Path
 import unicodedata
 from datetime import datetime, timezone
 import chromadb
@@ -160,29 +160,9 @@ def ingest_data(
 # Quick Test: For testing purposes, we can run this module directly to ingest some dummy data and verify the setup.
 
 if __name__ == "__main__":
-    dummy_chunks = [
-        {
-            "chunk_text": "Alice: Yarın kafede buluşacak mıyız?\nBob: Tabii, saat 3 iyi olur.",
-            "source": "group_chat.txt",
-            "participants": ["Alice", "Bob"],
-            "start_datetime": "2024-03-01T15:00:00",
-            "end_datetime": "2024-03-01T15:05:00",
-        },
-        {
-            "chunk_text": "Charlie: Okçuluk dersine başlamak istiyorum, nereden başlamalıyım?",
-            "source": "group_chat.txt",
-            "participants": ["Charlie"],
-            "start_datetime": "2024-03-02T10:00:00",
-            "end_datetime": "2024-03-02T10:01:00",
-        },
-        {
-            "chunk_text": "Alice: Bu hafta sonu piknik yapalım mı?\nDana: Harika fikir!",
-            "source": "group_chat.txt",
-            "participants": ["Alice", "Dana"],
-            "start_datetime": None,
-            "end_datetime": None,
-        },
-    ]
+
+    dummy_path = Path(__file__).parent / "dummy_chunks.json"
+    dummy_chunks = json.loads(dummy_path.read_text(encoding="utf-8"))
 
     collection = init_db()
     ingest_data(dummy_chunks, collection)
