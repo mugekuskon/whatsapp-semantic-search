@@ -9,6 +9,7 @@ import uuid
 import logging
 import re
 import unicodedata
+from datetime import datetime, timezone
 import chromadb
 from chromadb.api.types import Documents, Embeddings
 from sentence_transformers import SentenceTransformer
@@ -120,11 +121,25 @@ def ingest_data(
         participants_raw = chunk.get("participants", [])
         participants_str = ", ".join(participants_raw) if participants_raw else ""
 
+        start_dt = chunk.get("start_datetime")
+        end_dt   = chunk.get("end_datetime")
+
+        def _to_timestamp(dt) -> int:
+            if dt is None:
+                return 0
+            if isinstance(dt, str):
+                dt = datetime.fromisoformat(dt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp())
+
         metadatas.append({
             "source": _safe_str(chunk.get("source")),
             "participants": participants_str,
-            "start_datetime": _safe_str(chunk.get("start_datetime")),
-            "end_datetime": _safe_str(chunk.get("end_datetime")),
+            "start_datetime": _safe_str(start_dt),
+            "end_datetime": _safe_str(end_dt),
+            "start_timestamp": _to_timestamp(start_dt),
+            "end_timestamp": _to_timestamp(end_dt),
         })
 
         ids.append(str(uuid.uuid4()))

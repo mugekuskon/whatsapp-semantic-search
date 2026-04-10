@@ -12,3 +12,6 @@ config.py
 
 # ChromaDB vector database
 chroma_db/
+
+# Query/config JSON files for tests
+*.json

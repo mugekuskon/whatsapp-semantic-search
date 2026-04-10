@@ -11,6 +11,28 @@ _DOC_ATTACHMENT_RE = re.compile(r"(.+?)\s*•\s*\d+\s*(?:sayfa|page)\s*belge dah
 
 _HTTP_URL_RE = re.compile(r"https?://\S+")
 
+_LAUGHTER_RE = re.compile(r'\b[A-ZĞÜŞİÖÇa-zğüşıöç]{6,}\b')
+
+def _is_laughter(token: str) -> bool:
+    if not token.isupper():
+        return False
+    if len(token) >= 3 and len(set(token[-3:])) == 1:
+        return False
+    if len(set(token)) / len(token) >= 0.75:
+        return False
+    vowels = set("AEIİOUÖÜaeiıouöü")
+    vowel_count = sum(1 for c in token if c in vowels)
+    return vowel_count / len(token) < 0.25
+
+def _replace_laughter(text: str) -> str:
+    """Replace keyboard-smash laughter tokens with [kahkaha]."""
+    def replacer(m):
+        return "[kahkaha]" if _is_laughter(m.group(0)) else m.group(0)
+    # Collapse multiple consecutive [kahkaha] into one
+    result = _LAUGHTER_RE.sub(replacer, text)
+    result = re.sub(r'(\[kahkaha\]\s*){2,}', '[kahkaha] ', result)
+    return result.strip()
+
 
 _MAX_URL_LEN = 80  # URLs longer than this are shortened to domain only
 
@@ -62,6 +84,9 @@ def clean_chat_data(df: pd.DataFrame) -> pd.DataFrame:
     # 4. Annotate URLs with semantic labels
     cleaned["Message"] = cleaned["Message"].apply(_replace_urls)
 
+    # 5. Replace keyboard-smash laughter with [kahkaha]
+    cleaned["Message"] = cleaned["Message"].apply(_replace_laughter)
+
     return cleaned
 
 
@@ -105,13 +130,32 @@ def chunk_messages(
 
         participants = list(dict.fromkeys(r["Sender"] for r in window))
 
-        # If chunk exceeds 1200 chars, split into sub-chunks of 1200 chars each
-        # by line boundaries so we never cut mid-message.
-        if len(chunk_text) > 1200:
+        # If chunk exceeds 500 chars, split into sub-chunks of 500 chars each.
+        # First tries line boundaries; if a single line is still >500 chars
+        # (e.g. long self-notes with no newlines), force-splits at word boundaries.
+        if len(chunk_text) > 500:
             sub_lines = chunk_text.split("\n")
-            current_sub, current_len = [], 0
+
+            # Force-split any single line that exceeds 500 chars at word boundaries
+            expanded_lines = []
             for line in sub_lines:
-                if current_len + len(line) > 1200 and current_sub:
+                if len(line) <= 500:
+                    expanded_lines.append(line)
+                else:
+                    words = line.split(" ")
+                    current_part = ""
+                    for word in words:
+                        if len(current_part) + len(word) + 1 > 500 and current_part:
+                            expanded_lines.append(current_part.strip())
+                            current_part = word
+                        else:
+                            current_part += (" " if current_part else "") + word
+                    if current_part:
+                        expanded_lines.append(current_part.strip())
+
+            current_sub, current_len = [], 0
+            for line in expanded_lines:
+                if current_len + len(line) > 500 and current_sub:
                     chunks.append({
                         "chunk_text": "\n".join(current_sub),
                         "start_datetime": start_dt,
