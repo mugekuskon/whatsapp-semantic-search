@@ -2,7 +2,6 @@
 
 A fully local Retrieval-Augmented Generation (RAG) pipeline that lets you ask questions about your WhatsApp chat history and receive grounded answers in Turkish. Built with hybrid search (BM25 + semantic vectors + cross-encoder reranking), a local LLM via Ollama and a Gradio web interface.
 
-> 💡 **Screenshot:** add a screenshot of the Gradio UI with a real query and answer here.
 
 ## Architecture
 
@@ -28,7 +27,6 @@ WhatsApp .txt exports
   app.py                Gradio web UI — Ask tab and Search tab
 ```
 
-> 💡 **Diagram:** a before/after comparison of pure vector search vs. the full hybrid pipeline on the same query would be compelling here.
 
 ### How Search Works
 
@@ -136,7 +134,6 @@ python app.py
 
 Open [http://localhost:7860](http://localhost:7860).
 
-> 💡 **Screenshot:** add a side-by-side of the Ask tab and Search tab here.
 
 **Ask tab**: type a question in Turkish. The pipeline retrieves the most relevant chunks, builds a grounded prompt, and streams a Turkish answer. If the information is not in the chat history, the model responds: *"Bu bilgi sohbet geçmişinde bulunamadı."*
 
@@ -157,7 +154,6 @@ Open [http://localhost:7860](http://localhost:7860).
 
 All patterns and domain mappings are configured in `config.py`.
 
----
 
 ## Project Structure
 
@@ -234,12 +230,7 @@ python test.py --n-results 5     # control results shown per query
 **Semantic tests** have no automatic verdict. Inspect results manually to judge topical relevance.
 
 
-## Known Limitations
 
-* **No Turkish stemming**: Apostrophe stripping helps but does not fully solve this. Proper stemming would require [Zemberek-NLP](https://github.com/ahmetaa/zemberek-nlp).
-* **No query expansion**
-* **Media not searchable**: voice messages and images are exported as placeholder text and filtered out.
-* **LLM grounding**: the prompt enforces strict grounding rules but the model can still occasionally go beyond the provided context. Cross-check important answers in the Search tab.
 
 
 
