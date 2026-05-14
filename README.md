@@ -81,7 +81,7 @@ Every query goes through six stages:
 ## Installation
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/mugekuskon/whatsapp-semantic-search.git
 cd whatsapp-search
 
 python -m venv venv
