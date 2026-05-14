@@ -11,6 +11,7 @@ import logging
 import time
 import ollama
 from search_engine import hybrid_search
+from config import RAG_PROMPT_TEMPLATE
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -44,24 +45,7 @@ def build_prompt(question: str, chunks: list[dict]) -> str:
 
     context = "\n\n---\n\n".join(context_blocks)
 
-    return f"""You are a helpful assistant answering questions about a person's WhatsApp chat history.
-
-STRICT RULES:
-1. Answer ONLY using information explicitly stated in the chat snippets below.
-2. Do NOT infer, guess, or add any information not present in the messages.
-3. If the answer is not clearly in the snippets, say exactly: "Bu bilgi sohbet geçmişinde bulunamadı."
-4. When referencing a message, cite it using the source name and time (e.g. "friend_group sohbetinde, Aralık 2025'te...").
-5. Answer in Turkish regardless of the question language.
-6. Keep the answer short and factual.
-
---- CHAT SNIPPETS ---
-
-{context}
-
---- QUESTION ---
-{question}
-
---- ANSWER ---"""
+    return RAG_PROMPT_TEMPLATE.format(context=context, question=question)
 
 
 def _parse_results(raw_results: dict) -> list[dict]:

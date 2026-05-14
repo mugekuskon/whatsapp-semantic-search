@@ -1,5 +1,8 @@
-pandas
-sentence-transformers
-chromadb
-python-dotenv
-emoji
+gradio>=6.0
+pandas>=3.0
+sentence-transformers>=5.3
+chromadb>=1.5
+rank-bm25>=0.2
+emoji>=2.0
+ollama>=0.6
+numpy>=2.0

@@ -11,13 +11,12 @@ _HTTP_URL_RE = re.compile(r"https?://\S+")
 _LAUGHTER_RE = re.compile(r'\b[A-ZĞÜŞİÖÇa-zğüşıöç]{6,}\b')
 
 def _is_laughter(token: str) -> bool:
-    if not token.isupper():
-        return False
+    token = token.upper() 
     if len(token) >= 3 and len(set(token[-3:])) == 1:
         return False
     if len(set(token)) / len(token) >= 0.75:
         return False
-    vowels = set("AEIİOUÖÜaeiıouöü")
+    vowels = set("AEIİOUÖÜ")
     vowel_count = sum(1 for c in token if c in vowels)
     return vowel_count / len(token) < 0.25
 

@@ -5,40 +5,21 @@ stored vectors are always produced by the same weights.
 """
 import uuid
 import logging
-import re
 import json
 from pathlib import Path
-import unicodedata
 from datetime import datetime, timezone
 import chromadb
 from chromadb.api.types import Documents, Embeddings
 from sentence_transformers import SentenceTransformer
 from config import EMBEDDING_MODEL
+from utils import normalize_text
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
 
 MODEL_NAME = EMBEDDING_MODEL
 COLLECTION_NAME = "whatsapp_chats"
-
-# Normalization (mirrors embeddings.py) 
-_WHITESPACE_RE = re.compile(r"[\s\u00a0]+")
-_CONTROL_RE = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
-_PUNCT_MAP = str.maketrans({
-    "\u2018": "'", "\u2019": "'",
-    "\u201c": '"', "\u201d": '"',
-    "\u2013": "-", "\u2014": "-",
-    "\u2026": "...",
-})
-
-
-def _normalize(text: str) -> str:
-    text = unicodedata.normalize("NFC", text)
-    text = text.translate(_PUNCT_MAP)
-    text = _CONTROL_RE.sub("", text)
-    text = text.lower()
-    text = _WHITESPACE_RE.sub(" ", text).strip()
-    return text
+DB_PATH = "./chroma_db"
 
 
 class NormalizedEmbeddingFunction:
@@ -53,7 +34,7 @@ class NormalizedEmbeddingFunction:
         return "NormalizedEmbeddingFunction"
 
     def _encode(self, texts: Documents) -> Embeddings:
-        normalized = [_normalize(t) for t in texts]
+        normalized = [normalize_text(t) for t in texts]
         return self.model.encode(normalized).tolist()
 
     def __call__(self, input: Documents) -> Embeddings:
@@ -91,6 +72,17 @@ def _safe_str(value) -> str:
     return "" if value is None else str(value)
 
 
+def _to_timestamp(dt) -> int:
+    """Convert a datetime (or ISO string) to a UTC Unix timestamp integer."""
+    if dt is None:
+        return 0
+    if isinstance(dt, str):
+        dt = datetime.fromisoformat(dt)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())
+
+
 def ingest_data(
     chunks_list: list[dict],
     collection: chromadb.Collection,
@@ -124,15 +116,6 @@ def ingest_data(
         start_dt = chunk.get("start_datetime")
         end_dt   = chunk.get("end_datetime")
 
-        def _to_timestamp(dt) -> int:
-            if dt is None:
-                return 0
-            if isinstance(dt, str):
-                dt = datetime.fromisoformat(dt)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return int(dt.timestamp())
-
         metadatas.append({
             "source": _safe_str(chunk.get("source")),
             "participants": participants_str,
@@ -161,7 +144,7 @@ def ingest_data(
 
 if __name__ == "__main__":
 
-    dummy_path = Path(__file__).parent / "dummy_chunks.json"
+    dummy_path = Path(__file__).parent / "tests" / "dummy_chunks.json"
     dummy_chunks = json.loads(dummy_path.read_text(encoding="utf-8"))
 
     collection = init_db()

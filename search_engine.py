@@ -10,12 +10,10 @@ from datetime import datetime, timezone, timedelta
 import chromadb
 from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
-from database_manager import MODEL_NAME, COLLECTION_NAME, NormalizedEmbeddingFunction
+from database_manager import MODEL_NAME, COLLECTION_NAME, DB_PATH, NormalizedEmbeddingFunction
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
-
-DB_PATH = "./chroma_db"
 
 # RRF constant — higher = smaller penalty for lower-ranked results (60 is standard)
 RRF_K = 60
@@ -51,13 +49,17 @@ def rerank(query: str, candidates: list[tuple[str, str, dict, float]], top_n: in
     return [(cid, doc, meta, dist, float(score)) for (cid, doc, meta, dist), score in ranked[:top_n]]
 
 
+_collection: chromadb.Collection | None = None
+
 def get_db_collection() -> chromadb.Collection:
-    """Connect to the persistent ChromaDB and return the whatsapp_chats collection."""
-    client = chromadb.PersistentClient(path=DB_PATH)
-    embedding_fn = NormalizedEmbeddingFunction(model_name=MODEL_NAME)
-    collection = client.get_collection(name=COLLECTION_NAME, embedding_function=embedding_fn)
-    log.info("Connected to collection '%s' (count=%d)", COLLECTION_NAME, collection.count())
-    return collection
+    """Return the ChromaDB collection, loading it once and caching for all subsequent calls."""
+    global _collection
+    if _collection is None:
+        client = chromadb.PersistentClient(path=DB_PATH)
+        embedding_fn = NormalizedEmbeddingFunction(model_name=MODEL_NAME)
+        _collection = client.get_collection(name=COLLECTION_NAME, embedding_function=embedding_fn)
+        log.info("Connected to collection '%s' (count=%d)", COLLECTION_NAME, _collection.count())
+    return _collection
 
 
 def _tokenize(text: str) -> list[str]:
@@ -66,7 +68,7 @@ def _tokenize(text: str) -> list[str]:
     non-alphanumeric characters for BM25. This prevents possessives/suffixes
     from being split into meaningless single-letter tokens.
     """
-    # Strip all apostrophe variants so Kutay'a / Kutay'a → kutaya (one token)
+    # Strip all apostrophe variants
     text = text.lower()
     text = text.replace("'", "").replace("\u2018", "").replace("\u2019", "")
     return re.findall(r"\w+", text)
@@ -161,6 +163,9 @@ def hybrid_search(query_text: str, n_results: int = 5, months_ago: int | None = 
     id_to_dist = dict(zip(semantic_ids, semantic_results["distances"][0]))
 
     # 4. Reciprocal Rank Fusion
+    # BM25 appears 3× vs semantic 1× — intentional 3:1 weighting.
+    # Turkish agglutination means the embedding model sometimes misses inflected
+    # forms, so keyword precision is weighted higher than semantic recall.
     rrf_ranked = _reciprocal_rank_fusion([
         semantic_ids[:pool_size],
         bm25_ranked_ids[:pool_size],
@@ -242,7 +247,7 @@ def print_search_results(results: dict) -> None:
 
 
 if __name__ == "__main__":
-    query = ""
-    print(f"Query: {query}\n")
-    results = hybrid_search(query, n_results=5)
-    print_search_results(results)
+    query = input("Query: ").strip()
+    if query:
+        results = hybrid_search(query, n_results=5)
+        print_search_results(results)
